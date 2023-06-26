@@ -1,0 +1,317 @@
+= How to Use Pandas with Hazelcast Python Client
+:page-layout: tutorial
+:page-product: hazelcast-imdg
+:page-categories: Getting Started, DBAPI, Pandas
+:page-lang: python
+:page-enterprise:
+:page-est-time: 8-10 minutes
+:description: This tutorial will show you how to use Pandas with Hazelcast Python Client. Also you will learn how to use Python Client's DPABI API with pandas.
+
+{description}
+
+
+== Context
+This tutorial will show you how to use Pandas with Hazelcast Python Client.
+
+== Requirements
+
+Before starting this tutorial, make sure that you meet the following prerequisites:
+
+* A text editor or IDE
+* Hazelcast Cluster. You can use any of them below. In this tutorial, local cluster will be used.
+** Local Hazelcast Cluster
+** https://hazelcast.com/products/viridian/[Hazelcast Viridian] (Free account is available.)
+* Python 3.6 or higher
+* Pandas
+* matplotlib
+* numpy
+
+
+== Starting Hazelcast Cluster
+
+1. Go to https://hazelcast.com/open-source-projects/downloads/[Hazelcast Open Source Downloads] and download either the .zip or .tar distribution of Hazelcast.
+
+2. Decompress the contents into any directory that you want to run members from.
+
+3. Change into the directory that you decompressed the Hazelcast content and then into the bin directory.
+
+4. To start the cluster, use either hz-start or hz-start.bat depending on your operating system. Once you run the start script, you should see the Hazelcast logs in the terminal.
+
+
+== Installing and Starting the Client
+
+Create a new folder by
+
+[source, bash]
+mkdir hazelcast-python-client-getting-started
+
+Navigate to that folder by
+
+[source, bash]
+cd hazelcast-python-client-getting-started
+
+Hazelcast Python Client can be installed by pip3. Run the following command.
+
+[source, bash]
+pip3 install hazelcast-python-client
+
+Create a file named tutorial.py
+
+Put the following code inside of tutorial.py.
+
+[source, python]
+----
+import hazelcast
+client = hazelcast.HazelcastClient()
+client.shutdown()
+----
+To run this Python script, use the following command in the terminal.
+
+[source, bash]
+python3 tutorial.py
+
+First line imports the Hazelcast Python client.
+
+Following line creates and starts a new Hazelcast Client. To configure the client, you can check https://hazelcast.readthedocs.io/en/stable/client.html#hazelcast.client.HazelcastClient[API documentation].
+
+== Using Pandas with Hazelcast Python Client
+In this tutorial, we will have a map with patient's blood pressure and heart rate data. We will use https://pandas.pydata.org/docs/reference/index.html#api[Pandas]
+to analyze this data.
+
+Let's create a map first named `patients`. Hazelcast map is a distributed key-value store.
+
+[source, python]
+patients = client.get_map("patients").blocking()
+
+Now, we store the blood pressure and heart rate data of fifty patients in a DataFrame and load it to Hazelcast cluster as JSON.
+
+[source, python]
+----
+import hazelcast
+from hazelcast.core import HazelcastJsonValue
+from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+
+client = hazelcast.HazelcastClient()
+
+patients = client.get_map("patients").blocking()
+
+for pid in range(0, 50):
+    df = pd.DataFrame(
+        data={
+            "blood_pressure": np.random.randint(80, 120, size=(75,)),
+            "heart_rate": np.random.randint(60, 100, size=(75,)),
+        },
+        index=pd.date_range("2023-01-15", periods=75, freq="H"),
+    )
+    # Load DataFrame to Hazelcast cluster as HazelcastJsonValue
+    patients.put(pid, HazelcastJsonValue(df.to_json()))
+
+client.shutdown()
+----
+
+Now, we have the data in Hazelcast cluster as map. HazelcastJsonValue is a wrapper for JSON formatted strings. It is
+used to store JSON formatted strings in Hazelcast cluster.
+Now we can get the data from Hazelcast cluster and analyze it with Pandas.
+
+[source, python]
+----
+import hazelcast
+from hazelcast.core import HazelcastJsonValue
+from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+
+# Create Hazelcast client
+client = hazelcast.HazelcastClient()
+
+# Get an IMap for storing patient's DataFrame objects
+patients = client.get_map("patients").blocking()
+
+# Store the blood pressure and heart rate data of fifty patients in a DataFrame and load it to Hazelcast cluster as JSON
+for pid in range(0, 50):
+    # Create DataFrame with random values
+    df = pd.DataFrame(
+        data={
+            "blood_pressure": np.random.randint(80, 120, size=(75,)),
+            "heart_rate": np.random.randint(60, 100, size=(75,)),
+        },
+        index=pd.date_range("2023-01-15", periods=75, freq="H"),
+    )
+    # Load DataFrame to Hazelcast cluster as HazelcastJsonValue
+    patients.put(pid, HazelcastJsonValue(df.to_json()))
+
+pid = np.random.randint(0, 50)
+# Retrieve the data of a random patient
+df = pd.read_json(patients.get(pid).to_string())
+
+# Plot the data
+df.plot(use_index=True, y=["blood_pressure", "heart_rate"], figsize=(15, 5), kind="line")
+plt.title(f"Blood Pressure and Heart Rate Plot of Patient-{pid}")
+plt.show()
+client.shutdown()
+----
+
+In this example, we have created a map named `patients` and stored the blood pressure and heart rate data of fifty patients in a DataFrame and load it to Hazelcast cluster as JSON.
+Then, we have retrieved the data of a random patient and plotted it.
+
+== Using DPABI API with Pandas
+Hazelcast have a https://hazelcast.readthedocs.io/en/stable/api/db.html[DBAPI] which is compatible with https://pandas.pydata.org/docs/reference/index.html#api[Pandas]. You can use this API to analyze your data in Hazelcast cluster with Pandas.
+For DBAPI, we are going to use another example. So, do not forget that these two are completely different examples.
+Also declare a mapping name for our tables, which makes our job easier.
+[source, python]
+----
+import hazelcast
+from hazelcast.db import connect
+from hazelcast.core import HazelcastJsonValue
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+
+client = hazelcast.HazelcastClient()
+
+map_name = "mapping"
+----
+
+Now, we are going to create Connection object instance and a cursor object instance. We will use these instances to execute our SQL queries.
+
+[source, python]
+----
+# Create a connection object
+conn = connect()
+cursor = conn.cursor()
+----
+
+Now, we are ready to execute our queries. Let's see how to create a table first.
+
+[source, python]
+----
+def createMapping(map_name):
+    q = f"""
+            CREATE MAPPING "{map_name}" (
+                __key INT,
+                this JSON
+            )
+            TYPE IMaP
+            OPTIONS (
+                'keyFormat' = 'int',
+                'valueFormat' = 'json'
+            )
+            """
+    cursor.execute(q)
+----
+
+Now, this is how to insert our data to the table. We are going to use Pandas to create our data.
+Since we need unique keys for databases, we are going to use timestamp here.
+[source, python]
+----
+def populate_map(map_name, entry_count):
+    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
+
+    for pid in range(0, entry_count):
+        df = pd.DataFrame(
+            data={
+                "blood_pressure": np.random.randint(80, 120, size=(75,)),
+                "heart_rate": np.random.randint(60, 100, size=(75,)),
+            },
+            index=pd.date_range("2023-06-26", periods=75, freq="H"),
+        )
+
+        key = (pid + timestamp) % 2147483647  # Modulo operation to limit the key within the valid range
+
+        cursor.execute(
+            f'INSERT INTO "{map_name}" VALUES (?, ?)', (key, HazelcastJsonValue(df.to_json()))
+        )
+        conn.commit()
+----
+
+We can insert our data in cluster now. Let's learn how to retrieve the data of a random patient and plot it.
+
+[source, python]
+----
+import hazelcast
+from hazelcast.db import connect, DatabaseError
+from hazelcast.core import HazelcastJsonValue
+import pandas as pd
+import numpy as np
+import time
+from matplotlib import pyplot as plt
+
+client = hazelcast.HazelcastClient()
+map_name = "mapping"
+
+conn = connect()
+cursor = conn.cursor()
+
+def createMapping(map_name):
+    q = f"""
+            CREATE MAPPING "{map_name}" (
+                __key INT,
+                this JSON
+            )
+            TYPE IMaP
+            OPTIONS (
+                'keyFormat' = 'int',
+                'valueFormat' = 'json'
+            )
+            """
+    cursor.execute(q)
+
+def populate_map(map_name, entry_count):
+    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
+
+    for pid in range(0, entry_count):
+        df = pd.DataFrame(
+            data={
+                "blood_pressure": np.random.randint(80, 120, size=(75,)),
+                "heart_rate": np.random.randint(60, 100, size=(75,)),
+            },
+            index=pd.date_range("2023-06-26", periods=75, freq="H"),
+        )
+
+        key = (pid + timestamp) % 2147483647  # Modulo operation to limit the key within the valid range
+
+        cursor.execute(
+            f'INSERT INTO "{map_name}" VALUES (?, ?)', (key, HazelcastJsonValue(df.to_json()))
+        )
+        conn.commit()
+
+
+
+def plot_patient_data(table_name):
+    cursor.execute(f'SELECT * FROM "{table_name}"')
+    rows = cursor.fetchall()
+
+    for row in rows:
+        key = row[0]
+        json_data = row[1].to_string()  # Convert HazelcastJsonValue to string
+
+        df = pd.read_json(json_data)
+        df.plot(use_index=True, y=["blood_pressure", "heart_rate"], figsize=(15, 5), kind="line")
+
+        pid = key  # Assuming the key represents the patient ID
+        plt.title(f"Blood Pressure and Heart Rate Plot of Patient-{pid}")
+        plt.show()
+
+createMapping(map_name)
+populate_map(map_name, 50)
+plot_patient_data(map_name)
+----
+
+You can see the output of the code above in the following image.
+
+
+== Summary
+
+In this tutorial, we have seen how to use Hazelcast with Pandas. Also, we have learned how to use Hazelcast Python Client
+DBAPI to execute SQL queries on Hazelcast cluster with Pandas.
+
+
+== See Also
+There are a lot of things that you can do with Python Client. For more, check out our
+https://github.com/hazelcast/hazelcast-python-client[Python Client repository] or https://hazelcast.readthedocs.io/en/stable/[Python Client API docs].
+
+If you have any questions, suggestions, or feedback please do not hesitate to reach out to us via
+https://slack.hazelcast.com/[Hazelcast Community Slack]. Also, please take a look at https://github.com/hazelcast/hazelcast-python-client/issues[the issue list]
+if you would like to contribute to the client.
