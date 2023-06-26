@@ -13,7 +13,7 @@
 == Context
 This tutorial will show you how to use Pandas with Hazelcast Python Client.
 
-== Before you Begin
+== Requirements
 
 Before starting this tutorial, make sure that you meet the following prerequisites:
 
@@ -27,7 +27,7 @@ Before starting this tutorial, make sure that you meet the following prerequisit
 * numpy
 
 
-== Installing Hazelcast Cluster
+== Starting Hazelcast Cluster
 
 1. Go to https://hazelcast.com/open-source-projects/downloads/[Hazelcast Open Source Downloads] and download either the .zip or .tar distribution of Hazelcast.
 
@@ -38,7 +38,7 @@ Before starting this tutorial, make sure that you meet the following prerequisit
 4. To start the cluster, use either hz-start or hz-start.bat depending on your operating system. Once you run the start script, you should see the Hazelcast logs in the terminal.
 
 
-== Installing and Starting with the Client
+== Installing and Starting the Client
 
 Create a new folder by
 
@@ -73,7 +73,6 @@ python3 tutorial.py
 First line imports the Hazelcast Python client.
 
 Following line creates and starts a new Hazelcast Client. To configure the client, you can check https://hazelcast.readthedocs.io/en/stable/client.html#hazelcast.client.HazelcastClient[API documentation].
-
 
 == Using Pandas with Hazelcast Python Client
 In this tutorial, we will have a map with patient's blood pressure and heart rate data. We will use https://pandas.pydata.org/docs/reference/index.html#api[Pandas]
@@ -160,9 +159,7 @@ Then, we have retrieved the data of a random patient and plotted it.
 == Using DPABI API with Pandas
 Hazelcast have a https://hazelcast.readthedocs.io/en/stable/api/db.html[DBAPI] which is compatible with https://pandas.pydata.org/docs/reference/index.html#api[Pandas]. You can use this API to analyze your data in Hazelcast cluster with Pandas.
 For DBAPI, we are going to use another example. So, do not forget that these two are completely different examples.
-Let's create a map, we have given a different name to the map name send to cluster, since if you are using Hazelcast Viridian as cluster
-we do not want to override the data to the map that we have created in the previous example.
-
+Also declare a mapping name for our tables, which makes our job easier.
 [source, python]
 ----
 import hazelcast
@@ -174,8 +171,7 @@ from matplotlib import pyplot as plt
 
 client = hazelcast.HazelcastClient()
 
-# Create a Distributed Map in the cluster
-patients = client.get_map("patientsWithDBAPI").blocking()
+map_name = "mapping"
 ----
 
 Now, we are going to create Connection object instance and a cursor object instance. We will use these instances to execute our SQL queries.
@@ -187,102 +183,120 @@ conn = connect()
 cursor = conn.cursor()
 ----
 
-Now, we are ready to execute our queries. Let's create a table named `patients` first.
+Now, we are ready to execute our queries. Let's see how to create a table first.
 
 [source, python]
 ----
-# Create a table named patients
-q = """
-CREATE MAPPING patients (
-    __key INT,
-    this JSON
-)
-TYPE IMaP
-OPTIONS (
-    'keyFormat' = 'int'
-    'valueFormat' = 'json'
-)
-"""
-cursor.execute(q)
+def createMapping(map_name):
+    q = f"""
+            CREATE MAPPING "{map_name}" (
+                __key INT,
+                this JSON
+            )
+            TYPE IMaP
+            OPTIONS (
+                'keyFormat' = 'int',
+                'valueFormat' = 'json'
+            )
+            """
+    cursor.execute(q)
 ----
 
-Now, we are going to insert our data to the table. We are going to use Pandas to create our data.
-
+Now, this is how to insert our data to the table. We are going to use Pandas to create our data.
+Since we need unique keys for databases, we are going to use timestamp here.
 [source, python]
 ----
-for pid in range(0, 50):
-    # Create DataFrame with random values
-    df = pd.DataFrame(
-        data={
-            "blood_pressure": np.random.randint(80, 120, size=(75,)),
-            "heart_rate": np.random.randint(60, 100, size=(75,)),
-        },
-        index=pd.date_range("2023-01-15", periods=75, freq="H"),
-    )
-    # Load DataFrame to Hazelcast cluster as HazelcastJsonValue
-    cursor.execute(f'INSERT INTO "{patients}" VALUES (?, ?)', (pid, HazelcastJsonValue(df.to_json())))
+def populate_map(map_name, entry_count):
+    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
+
+    for pid in range(0, entry_count):
+        df = pd.DataFrame(
+            data={
+                "blood_pressure": np.random.randint(80, 120, size=(75,)),
+                "heart_rate": np.random.randint(60, 100, size=(75,)),
+            },
+            index=pd.date_range("2023-06-26", periods=75, freq="H"),
+        )
+
+        key = (pid + timestamp) % 2147483647  # Modulo operation to limit the key within the valid range
+
+        cursor.execute(
+            f'INSERT INTO "{map_name}" VALUES (?, ?)', (key, HazelcastJsonValue(df.to_json()))
+        )
+        conn.commit()
 ----
 
-We have our data in cluster now. Let's retrieve the data of a random patient and plot it.
+We can insert our data in cluster now. Let's learn how to retrieve the data of a random patient and plot it.
 
 [source, python]
 ----
 import hazelcast
-from hazelcast.db import connect
+from hazelcast.db import connect, DatabaseError
 from hazelcast.core import HazelcastJsonValue
 import pandas as pd
 import numpy as np
+import time
 from matplotlib import pyplot as plt
 
 client = hazelcast.HazelcastClient()
-
-# Create a Distributed Map in the cluster
-patients = client.get_map("patientsWithDBAPI").blocking()
+map_name = "mapping"
 
 conn = connect()
-# Create the mapping using cursor
 cursor = conn.cursor()
-value_format = "JSON"
 
-q = """
-CREATE MAPPING patients (
-    __key INT,
-    this JSON
-)
-TYPE IMaP
-OPTIONS (
-    'keyFormat' = 'int'
-    'valueFormat' = 'json'
-)
-"""
-cursor.execute(q)
+def createMapping(map_name):
+    q = f"""
+            CREATE MAPPING "{map_name}" (
+                __key INT,
+                this JSON
+            )
+            TYPE IMaP
+            OPTIONS (
+                'keyFormat' = 'int',
+                'valueFormat' = 'json'
+            )
+            """
+    cursor.execute(q)
 
-# Store the blood pressure and heart rate data of fifty patients in a DataFrame and load it to Hazelcast cluster as JSON
-for pid in range(0, 50):
-    # Create DataFrame with random values
-    df = pd.DataFrame(
-        data={
-            "blood_pressure": np.random.randint(80, 120, size=(75,)),
-            "heart_rate": np.random.randint(60, 100, size=(75,)),
-        },
-        index=pd.date_range("2023-01-15", periods=75, freq="H"),
-    )
-    # Load DataFrame to Hazelcast cluster as HazelcastJsonValue
-    cursor.execute(f'INSERT INTO "{patients}" VALUES (?, ?)', (pid, HazelcastJsonValue(df.to_json())))
+def populate_map(map_name, entry_count):
+    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
 
-pid = np.random.randint(0, 50)
+    for pid in range(0, entry_count):
+        df = pd.DataFrame(
+            data={
+                "blood_pressure": np.random.randint(80, 120, size=(75,)),
+                "heart_rate": np.random.randint(60, 100, size=(75,)),
+            },
+            index=pd.date_range("2023-06-26", periods=75, freq="H"),
+        )
 
-cursor.execute(f'SELECT * FROM "{patients}" where __key < ? order by __key', (5,))
-row = cursor.fetchone()
+        key = (pid + timestamp) % 2147483647  # Modulo operation to limit the key within the valid range
 
-# Convert the HazelcastJsonValue to DataFrame
-df = pd.read_json(row[1])
-df.plot(use_index=True, y=["blood_pressure", "heart_rate"], figsize=(15, 5), kind="line")
+        cursor.execute(
+            f'INSERT INTO "{map_name}" VALUES (?, ?)', (key, HazelcastJsonValue(df.to_json()))
+        )
+        conn.commit()
 
-plt.title(f"Blood Pressure and Heart Rate Plot of Patient-{pid}")
 
-plt.show()
-client.shutdown()
+
+def plot_patient_data(table_name):
+    cursor.execute(f'SELECT * FROM "{table_name}"')
+    rows = cursor.fetchall()
+
+    for row in rows:
+        key = row[0]
+        json_data = row[1].to_string()  # Convert HazelcastJsonValue to string
+
+        df = pd.read_json(json_data)
+        df.plot(use_index=True, y=["blood_pressure", "heart_rate"], figsize=(15, 5), kind="line")
+
+        pid = key  # Assuming the key represents the patient ID
+        plt.title(f"Blood Pressure and Heart Rate Plot of Patient-{pid}")
+        plt.show()
+
+createMapping(map_name)
+populate_map(map_name, 50)
+plot_patient_data(map_name)
 ----
 
 You can see the output of the code above in the following image.
